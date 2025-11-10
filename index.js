@@ -20,38 +20,6 @@ app.use(cors());
  
   
 
-//GET ALL USERS ENDPOINT..
-app.get("/users",async (req,res)=>{
-    const snapshot=await User.get();
-    const list=snapshot.docs.map((doc)=>({id:doc.id,...doc.data()}));
-      res.send(list);
-});
-
-//CREATE USER ENDPOINT..    
-app.post("/users/create",async (req,res)=>{
-    const data=req.body;
-    await User.add(data)
-    res.send("User Added");
-}
-);
-
-//UPDATE USER ENDPOINT..
-app.post("/users/update",async (req,res)=>{
-   const id=req.body.id;
-   delete req.body.id;
-   const data=req.body;
-   await User.doc(id).update(data);
-   res.send("User Updated");    
-}
-);
-
-//DELETE USER ENDPOINT..    
-app.delete("/users/delete",async (req,res)=>{
-   const id=req.body.id;
-   await User.doc(id).delete();
-   res.send("User Deleted!!");    
-}
-);
 
     
 
