@@ -1,13 +1,24 @@
 const openAI = require("openai");//Importing OpenAI package
-require("dotenv").config();//Loading environment variables from .env file   
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require("dotenv").config();//Loading environment variables from .env file
+console.log(" GEMINI AI Key Loaded:", !!process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
 const express = require("express");
+const app=express(); 
+
 const cors = require("cors");
+app.use(cors({ origin: "http://localhost:3000" }));//Connect backend to frontend
+const axios = require("axios");
 const {User,Disaster,Partner} = require("./config");//Importing collections from config.js
-const app=express();
+const fetch = require("node-fetch");
+
 app.use(express.json());
 app.use(cors());
-     
-    <!-- USER ENDPOINTS -->
+
+ 
+  
 
 //GET ALL USERS ENDPOINT..
 app.get("/users",async (req,res)=>{
@@ -42,7 +53,7 @@ app.delete("/users/delete",async (req,res)=>{
 }
 );
 
-    <!-- DISASTER ENDPOINTS -->
+    
 
 //CREATE DISASTER ENDPOINT..
 app.post("/disasters/report",async (req,res)=>{
@@ -84,8 +95,7 @@ app.delete("/disasters/reports/:id",async (req,res)=>{
     res.send("Disaster Report Deleted");
 })
 
-    <!-- PARTNER ENDPOINTS -->
-
+ 
 //GET PARTNER INFO FROM FORM DATA
 app.post("/partners/register", async (req,res)=>{
     try{
@@ -169,8 +179,70 @@ app.post("/partners/advice/:disasterId",async (req,res)=>{
 })
 
 
+//GET GEOCODATA FROM GOOGLE MAPS API through AXIOS
 
 
+app.get("/disasters/geocode/:location", async (req, res) => {
+  try {
+    const { location } = req.params;
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+    const response = await axios.get(
+      `https://maps.googleapis.com/maps/api/geocode/json`,
+      {
+        params: {
+          address: location,
+          key: apiKey,
+        },
+      }
+    );
+
+    const data = response.data;
+    if (data.status === "OK") {
+      const result = data.results[0];
+      res.json({
+        formatted_address: result.formatted_address,
+        coordinates: result.geometry.location,
+      });
+    } else {
+      res.status(400).json({ message: "Geocoding failed", details: data.status });
+    }
+  } catch (error) {
+    console.error("Error fetching geocode:", error);
+    res.status(500).send("Server error during geocoding");
+  }
+});
+
+
+//GEMINI AI CHATBOT ENDPOINT
+// Streamed api endpoint for smoother UI and lesss latency
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "Message is required" });
+
+    const prompt = `
+      You are GeoHelp — a warm, concise disaster-management assistant.
+      Offer clear and calm guidance for emergencies and safety.
+      User message: "${message}"
+    `;
+
+    const stream = await model.generateContentStream(prompt);
+
+    // Tell the browser we're streaming plain text
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+
+    for await (const chunk of stream.stream) {
+      const text = chunk.text();
+      if (text) res.write(text); // send partial text to client
+    }
+
+    res.end(); // finish the stream
+  } catch (error) {
+    console.error("🔥 Gemini stream error:", error);
+    res.status(500).send("GeoHelp is currently unavailable. Try again later.");
+  }
+});
 
 
 app.listen(4000,()=>console.log("Up and running on port 4000"));
