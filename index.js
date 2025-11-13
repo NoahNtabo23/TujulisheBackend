@@ -11,13 +11,34 @@ const express = require("express");
 const app=express(); 
 
 const cors = require("cors");
+//CREATE STATIC PARTNER FOR TESTING PURPOSES ONLY
+const partners = [
+  {
+    id: 1,
+    name: "Kenya Red Cross",
+    email: "teamredcross@ac.ke",
+    password: "123456",   
+    role: "partner"
+  },
+  {
+    id: 2,
+    name: "St John Ambulance",
+    email: "rescue@stjohn.ke",
+    password: "9876",
+    role: "partner"
+  }
+];
+const { hashPassword, comparePassword, signToken, requireAuth } = require("./auth");
 app.use(cors({ origin: "http://localhost:3000" }));//Connect backend to frontend
 const axios = require("axios");
 const {Disaster,Partner} = require("./config");//Importing collections from config.js
+
 const fetch = require("node-fetch");
 
 app.use(express.json());
 app.use(cors());
+
+
 
  
   
@@ -45,6 +66,7 @@ app.post("/disasters/report", async (req, res) => {
       severity: severity.toLowerCase(),
       outageTime: outageTime || new Date().toISOString(),
       timestamp: new Date().toISOString(),
+      status: "pending"
     };
 
     // Add report to Firestore
@@ -85,60 +107,83 @@ app.delete("/disasters/reports/:id",async (req,res)=>{
 })
 
  
-//GET PARTNER INFO FROM FORM DATA
-app.post("/partners/register", async (req,res)=>{
-    try{
-        const {name,organization,contact,email,specialization}=req.body;
-        //Validation of the required fields
-        if(!name || !organization || !contact || !email || !specialization){
-            return res.status(400).send("All fields are required.");
-        }
-        
-        const data={
-            name,
-            organization,
-            contact,
-            email, 
-            specialization:specialization||"General",
-            joinedAt:new Date().toISOString(),
-        };
-        await Partner.add(data);
-        res.send("Partner Registered Successfully");
-    }catch(error){
-        console.error("Error registering partner:",error);
-        res.status(500).send("Error registering partner.");
+
+
+
+//partner login logic
+app.post("/partners/login", (req, res) => {
+  const { email, password } = req.body;
+
+  const partner = partners.find(
+    p => p.email === email && p.password === password
+  );
+
+  if (!partner) {
+    return res.status(401).send("Invalid credentials");
+  }
+
+  
+  const token = "partner-token-" + partner.id;
+
+  res.json({
+    token,
+    partner: {
+      id: partner.id,
+      name: partner.name,
+      email: partner.email,
+      role: partner.role
     }
-})
-
-//PARTNER UPDATE DISASTER INFO....
-app.patch("/partners/updateDisaster/:id",async (req,res)=>{
-    try{
-        const disasterId=req.params.id;
-        const {status}=req.body;
-
-        const validStatuses=[
-            "Job Pending",
-            "Team Dispatched",
-            "Job In Progress",
-            "Job Completed",
-        ];
-
-        if(!validStatuses.includes(status)){
-            return res.status(400).send("Invalid status.");
-        };
-        const disasterRef=Disaster.doc(disasterId);
-        await disasterRef.update({
-            status,
-            lastUpdated:new Date().toISOString(),
-        });
-        res.send("Disaster status updated successfully to " + status);
-    } catch(error){
-        console.error("Error updating disaster status:",error);
-        res.status(500).send("Error updating disaster status.");
-        
-    }
+  });
 });
 
+//Partner fetch active incidents..
+app.get("/partners/incidents", requireAuth, async (req, res) => {
+  try {
+    const snapshot = await Disaster.orderBy("timestamp","desc").get();
+    const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    res.send(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Failed to fetch incidents");
+  }
+});
+
+//Get statistics for partners dashboard
+app.get("/partners/stats", requireAuth, async (req, res) => {
+  try {
+    const snapshot = await Disaster.get();
+    const items = snapshot.docs.map(d => d.data());
+    const total = items.length;
+    const pending = items.filter(i => i.status === "pending").length;
+    const inProgress = items.filter(i => i.status === "in-progress").length;
+    const resolved = items.filter(i => i.status === "resolved").length;
+    res.send({ total, pending, inProgress, resolved });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Failed to compute stats");
+  }
+});
+
+
+//PARTNER UPDATE DISASTER INFO....
+app.patch("/partners/incidents/:id/status", requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status } = req.body;
+    const allowed = ["pending", "in-progress", "resolved"];
+    if (!allowed.includes(status)) return res.status(400).send("Invalid status");
+
+    const docRef = Disaster.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).send("Incident not found");
+
+    await docRef.update({ status, lastUpdated: new Date().toISOString(), updatedBy: req.partner.id });
+    res.send({ id, status });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Failed to update incident status");
+  }
+});
 
 //ADD JOB BRIEF AND ADVICES TO DISASTER REPORT
 
