@@ -27,7 +27,7 @@ app.post("/disasters/report", async (req, res) => {
   try {
     const { disasterType, outageTime, description, location, severity } = req.body;
 
-    // Validation of required fields
+    // Validate required fields
     if (!disasterType || !description || !location || !severity) {
       return res.status(400).send("All fields are required.");
     }
@@ -37,17 +37,25 @@ app.post("/disasters/report", async (req, res) => {
       return res.status(400).send("Invalid severity level provided.");
     }
 
+    // how data will be stored in Firestore
     const data = {
-      disasterType,
-      outageTime: outageTime || new Date().toISOString(),
+      type: disasterType,  
       description,
       location,
       severity: severity.toLowerCase(),
-      reportedAt: new Date().toISOString(),
+      outageTime: outageTime || new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     };
 
-    await Disaster.add(data);
-    res.send("Disaster Reported Successfully");
+    // Add report to Firestore
+    const docRef = await Disaster.add(data);
+
+    // Create full response object with ID
+    const newReport = { id: docRef.id, ...data };
+
+    // Return full report object to frontend
+    res.status(201).send(newReport);
+
   } catch (error) {
     console.error("Error reporting disaster:", error);
     res.status(500).send("Error submitting disaster report.");
@@ -57,11 +65,17 @@ app.post("/disasters/report", async (req, res) => {
 
 
 //FETCH ALL DISASTER REPORTS
-app.get("/disasters/reports", async (req,res)=>{
-    const snapshot=await Disaster.get();
-    const list=snapshot.docs.map((doc)=>({id:doc.id,...doc.data()}));
+app.get("/disasters/reports", async (req, res) => {
+  try {
+    const snapshot = await Disaster.orderBy("timestamp", "desc").get();
+    const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.send(list);
-})
+  } catch (error) {
+    console.error("Error fetching reports:", error);
+    res.status(500).send("Error loading reports.");
+  }
+});
+
 
 //DELETE DISASTER REPORT
 app.delete("/disasters/reports/:id",async (req,res)=>{
