@@ -3,7 +3,9 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 require("dotenv").config();//Loading environment variables from .env file
 console.log(" GEMINI AI Key Loaded:", !!process.env.GEMINI_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash",  
+});
 
 const express = require("express");
 const app=express(); 
@@ -11,7 +13,7 @@ const app=express();
 const cors = require("cors");
 app.use(cors({ origin: "http://localhost:3000" }));//Connect backend to frontend
 const axios = require("axios");
-const {User,Disaster,Partner} = require("./config");//Importing collections from config.js
+const {Disaster,Partner} = require("./config");//Importing collections from config.js
 const fetch = require("node-fetch");
 
 app.use(express.json());
@@ -20,33 +22,38 @@ app.use(cors());
  
   
 
-
-    
-
 //CREATE DISASTER ENDPOINT..
-app.post("/disasters/report",async (req,res)=>{
-    try{
-        const {disasterType,outageTime,description,location}=req.body; 
-        
-        //Validation of the required fields
-        if(!disasterType || !outageTime || !description || !location){
-            return res.status(400).send("All fields are required.");
-        }
+app.post("/disasters/report", async (req, res) => {
+  try {
+    const { disasterType, outageTime, description, location, severity } = req.body;
 
-        const data={
-            disasterType,
-            outageTime,
-            description,
-            location,
-            reportedAt:new Date().toISOString()
-        }
-        await Disaster.add(data);
-        res.send("Disaster Reported Successfully");
-    }catch(error){
-        console.error("Error reporting disaster:",error);
-        res.status(500).send("Error submitting disaster report.");  
+    // Validation of required fields
+    if (!disasterType || !description || !location || !severity) {
+      return res.status(400).send("All fields are required.");
+    }
 
-}});
+    const validSeverities = ["low", "medium", "high", "critical"];
+    if (!validSeverities.includes(severity.toLowerCase())) {
+      return res.status(400).send("Invalid severity level provided.");
+    }
+
+    const data = {
+      disasterType,
+      outageTime: outageTime || new Date().toISOString(),
+      description,
+      location,
+      severity: severity.toLowerCase(),
+      reportedAt: new Date().toISOString(),
+    };
+
+    await Disaster.add(data);
+    res.send("Disaster Reported Successfully");
+  } catch (error) {
+    console.error("Error reporting disaster:", error);
+    res.status(500).send("Error submitting disaster report.");
+  }
+});
+
 
 
 //FETCH ALL DISASTER REPORTS
@@ -185,30 +192,26 @@ app.get("/disasters/geocode/:location", async (req, res) => {
 //GEMINI AI CHATBOT ENDPOINT
 // Streamed api endpoint for smoother UI and lesss latency
 app.post("/api/chat", async (req, res) => {
+  const userMessage = req.body.message;
+
   try {
-    const { message } = req.body;
-    if (!message) return res.status(400).json({ error: "Message is required" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    const prompt = `
-      You are GeoHelp — a warm, concise disaster-management assistant.
-      Offer clear and calm guidance for emergencies and safety.
-      User message: "${message}"
-    `;
+    const result = await model.generateContentStream({
+      contents: [{ role: "user", parts: [{ text: userMessage }] }],
+    });
 
-    const stream = await model.generateContentStream(prompt);
+    res.setHeader("Content-Type", "text/event-stream");
 
-    // Tell the browser we're streaming plain text
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-
-    for await (const chunk of stream.stream) {
+    for await (const chunk of result.stream) {
       const text = chunk.text();
-      if (text) res.write(text); // send partial text to client
+      if (text) res.write(text);
     }
 
-    res.end(); // finish the stream
+    return res.end();
   } catch (error) {
-    console.error("🔥 Gemini stream error:", error);
-    res.status(500).send("GeoHelp is currently unavailable. Try again later.");
+    console.error("Stream error:", error);
+    res.status(500).send("AI unavailable right now");
   }
 });
 

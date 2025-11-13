@@ -8,8 +8,8 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
-const User = db.collection("Users");
+
 const Disaster = db.collection("Disasters");
 const Partner = db.collection("Partners");   
 
-module.exports = { User, Disaster,Partner };  
+module.exports = {Disaster,Partner };  
