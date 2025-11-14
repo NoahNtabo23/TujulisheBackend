@@ -66,7 +66,10 @@ app.post("/disasters/report", async (req, res) => {
       severity: severity.toLowerCase(),
       outageTime: outageTime || new Date().toISOString(),
       timestamp: new Date().toISOString(),
-      status: "pending"
+      status: "pending",
+      lat: req.body.lat,
+      lng: req.body.lng
+
     };
 
     // Add report to Firestore
